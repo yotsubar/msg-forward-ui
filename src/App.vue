@@ -61,14 +61,17 @@ const tryLoad = () => {
 const copy2Clipboard = (text: string) => {
   const to = useClipboard();
   to.toClipboard(text);
-  ElMessage('Copied.')
+  ElMessage('Copied')
 }
 interface MsgReceiver {
   receive(msg: string): void
 }
 const receiver: MsgReceiver = {
   receive(msg: string) {
-    messgaes.unshift(new ForwardMsg(msg, new Date().toTimeString(), '#0bbd87'))
+    const date = new Date();
+    const padding = (i:number) => i < 10 ? '0' + i : i;
+    const datetimeStr = `${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()} ${padding(date.getHours())}:${padding(date.getMinutes())}:${padding(date.getSeconds())}`;
+    messgaes.unshift(new ForwardMsg(msg, datetimeStr, '#0bbd87'))
   }
 }
 class E2eClient {

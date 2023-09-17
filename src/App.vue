@@ -264,7 +264,7 @@ const collapseLeft = () => {
         </el-main>
         <el-footer>
           <el-input class="msg-input" v-model="textarea" :rows="3" type="textarea" placeholder="Please input" />
-          <el-button type="primary" style="min-width: 200px;" @click="e2eClient.sendChat(textarea); textarea = ''">
+          <el-button type="primary" style="width: 100%;" @click="e2eClient.sendChat(textarea); textarea = ''">
             <el-icon>
               <Promotion />
             </el-icon>

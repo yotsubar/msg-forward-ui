@@ -38,10 +38,6 @@ const messgaes: ForwardMsg[] = reactive([]);
 
 onMounted(() => {
   tryLoad()
-  window.addEventListener("beforeunload", (event) => {
-    event.preventDefault();
-    event.returnValue = "Refresh will require reconnection";
-  })
 })
 const tryLoad = () => {
   const u = localStorage.getItem('username')
@@ -103,10 +99,10 @@ class E2eClient {
   }
   start(path: string) {
     let url;
-    if (this.config.server.indexOf("https") === -1) {
+    if (this.config.server.indexOf("http") === -1) {
       url = "ws://" + this.config.server + "/ws/" + path
     } else {
-      url = "wss://" + this.config.server + "/ws/" + path
+      url = this.config.server.replace('http', "ws") + "/ws/" + path;
     }
     this.wsClient = new WebSocket(url)
     this.wsClient.binaryType = 'arraybuffer'
@@ -267,9 +263,8 @@ const collapseLeft = () => {
           </el-timeline>
         </el-main>
         <el-footer>
-
           <el-input class="msg-input" v-model="textarea" :rows="3" type="textarea" placeholder="Please input" />
-          <el-button type="primary" @click="e2eClient.sendChat(textarea); textarea = ''">
+          <el-button type="primary" style="min-width: 200px;" @click="e2eClient.sendChat(textarea); textarea = ''">
             <el-icon>
               <Promotion />
             </el-icon>
@@ -290,7 +285,7 @@ const collapseLeft = () => {
 }
 
 .infinite-list {
-  max-height: 450px;
+  max-height: 640px;
   padding: 5px 0;
   margin: 0;
   list-style: none;

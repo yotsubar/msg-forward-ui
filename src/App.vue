@@ -1,47 +1,39 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { MoreFilled, DArrowLeft, DArrowRight, Promotion } from '@element-plus/icons-vue'
+import type { DefineComponent } from 'vue';
+import { DArrowLeft, DArrowRight, Promotion } from '@element-plus/icons-vue'
 import { ElMessage } from "element-plus"
 import axios from "axios"
 import useClipboard from 'vue-clipboard3'
+import CryptoJS from 'crypto-js'
 
 const e2eConfig: E2eConfig = reactive({
   username: '',
   password: '',
   server: '',
+  secret: '',
 })
-const secret = ref('')
 const textarea = ref('')
-const testMsg = [
-  {
-    content: 'Custom icon',
-    timestamp: '2018-04-12 20:46',
-    size: 'large',
-    type: 'primary',
-    icon: MoreFilled
-  },
-  {
-    content: 'Custom color',
-    timestamp: '2018-04-03 20:46',
-    color: '#0bbd87'
-  },
-  {
-    content: 'Custom size',
-    timestamp: '2018-04-03 20:46',
-    size: 'large'
-  },
-  {
-    content: 'Custom hollow',
-    timestamp: '2018-04-03 20:46',
-    type: 'primary',
-    hollow: true
-  },
-  {
-    content: 'Default node',
-    timestamp: '2018-04-03 20:46'
+
+class ForwardMsg {
+  content: string
+  timestamp: string
+  color?: string
+  size?: string
+  type?: string
+  hollow: boolean
+  icon?: DefineComponent
+  constructor(content: string, timestamp: string, color?: string, size?: string, type?: string, icon?: DefineComponent) {
+    this.content = content;
+    this.timestamp = timestamp;
+    this.size = size;
+    this.type = type;
+    this.color = color;
+    this.hollow = true;
+    this.icon = icon;
   }
-]
-const messgaes = ref(testMsg.concat(testMsg).concat(testMsg))
+}
+const messgaes: ForwardMsg[] = reactive([]);
 
 onMounted(() => {
   tryLoad()
@@ -56,9 +48,13 @@ const tryLoad = () => {
     e2eConfig.password = cp
   }
 
+  const se = localStorage.getItem('server')
+  if (se) {
+    e2eConfig.server = se
+  }
   const s = localStorage.getItem('secret')
   if (s) {
-    secret.value = s
+    e2eConfig.secret = s
   }
 }
 const copy2Clipboard = (text: string) => {
@@ -71,25 +67,21 @@ interface MsgReceiver {
 }
 const receiver: MsgReceiver = {
   receive(msg: string) {
-    messgaes.value.push({
-      content: msg,
-      timestamp: new Date().toDateString(),
-      color: '#0bbd87'
-    })
+    console.log("Received: " + msg)
+    messgaes.push(new ForwardMsg(msg, new Date().toTimeString(), '#0bbd87'))
   }
 }
 class E2eClient {
   config: E2eConfig
   wsClient?: WebSocket
   r: MsgReceiver
-  textEncoder: TextEncoder
-  textDecoder: TextDecoder
+
+  cipher: Cipher
 
   constructor(conf: E2eConfig, r: MsgReceiver) {
     this.config = conf;
     this.r = r;
-    this.textDecoder = new TextDecoder();
-    this.textEncoder = new TextEncoder();
+    this.cipher = new Cipher(conf.secret);
   }
   connect() {
     axios.postForm("http://" + this.config.server + "/login", {
@@ -105,6 +97,7 @@ class E2eClient {
     this.wsClient = new WebSocket("ws://" + this.config.server + "/ws/" + path)
     this.wsClient.binaryType = 'arraybuffer'
     this.wsClient.onmessage = (e) => this.dispatch(e.data)
+    this.cipher = new Cipher(this.config.secret);
   }
   shutdown() {
     if (this.wsClient) {
@@ -118,6 +111,7 @@ class E2eClient {
   }
 
   sendChat(msg: string) {
+    console.log("Send: " + msg)
     this.sendWebsocketMsg(4, msg)
   }
 
@@ -125,7 +119,6 @@ class E2eClient {
     if (msg instanceof ArrayBuffer) {
       // binary frame
       const arr = new Uint8Array(msg);
-      console.log("Receive msg,type:" + arr[0])
       if (arr[0] == 2) {
         this.sendWebsocketMsg(3);
       } else if (arr[0] == 4) {
@@ -151,26 +144,59 @@ class E2eClient {
     }
   }
   encodeMsg(type: number, msg: string) {
-    const content = this.textEncoder.encode(msg)
+    const content = this.cipher.encrypt(msg);
     const m = new Uint8Array(1 + content.length);
     m.fill(type, 0, 1);
     m.set(content, 1);
     return m;
   }
   decodeMsg(data: Uint8Array) {
-    return this.textDecoder.decode(data.slice(1, data.length));
+    return this.cipher.decrypt(data.slice(1, data.length));
   }
 }
 interface E2eConfig {
   username: string
   password: string
   server: string
+  secret: string
 }
 
-let e2eClient: E2eClient = new E2eClient(e2eConfig, receiver)
+class Cipher {
+  secret: string
+  textEncoder: TextEncoder
+  textDecoder: TextDecoder
+
+  constructor(secret: string) {
+    this.secret = secret;
+    this.textDecoder = new TextDecoder();
+    this.textEncoder = new TextEncoder();
+  }
+  encrypt(t: string) {
+    const secret = CryptoJS.enc.Utf8.parse(this.secret);
+    const text = CryptoJS.enc.Utf8.parse(t);
+    const s = CryptoJS.AES.encrypt(text, secret , {
+      iv: secret,
+      mode: CryptoJS.mode.CFB,
+      padding: CryptoJS.pad.AnsiX923
+    }).toString();
+    console.log("encrypt to: " + s);
+    return this.textEncoder.encode(s);
+  }
+  decrypt(arr: Uint8Array) {
+    const s = this.textDecoder.decode(arr);
+    const secret = CryptoJS.enc.Utf8.parse(this.secret);
+    console.log("decrypt from: " + s);
+    return CryptoJS.AES.decrypt(s, secret, {
+      iv: secret,
+      mode: CryptoJS.mode.CFB,
+      padding: CryptoJS.pad.AnsiX923
+    }).toString(CryptoJS.enc.Utf8);
+  }
+}
+let e2eClient: E2eClient = new E2eClient(e2eConfig, receiver);
 
 const connectToServer = () => {
-  if (e2eConfig.password && e2eConfig.username) {
+  if (e2eConfig.password && e2eConfig.username && e2eConfig.secret) {
     e2eClient.reconnect()
   }
 }
@@ -199,8 +225,8 @@ const collapseLeft = () => {
           <el-input v-model="e2eConfig.server" placeholder="Please input server" />
           <el-input v-model="e2eConfig.username" placeholder="Please input username" />
           <el-input v-model="e2eConfig.password" type="password" placeholder="Please input password" show-password />
+          <el-input v-model="e2eConfig.secret" placeholder="Please input secret" />
           <el-button type="primary" @click="connectToServer">Connect</el-button>
-          <el-input v-model="secret" placeholder="Please input secret" />
         </div>
       </el-aside>
       <el-container>

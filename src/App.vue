@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import type { DefineComponent } from 'vue';
-import { DArrowLeft, DArrowRight, Promotion } from '@element-plus/icons-vue'
+import { DArrowLeft, DArrowRight, Promotion, CircleCheck } from '@element-plus/icons-vue'
 import { ElMessage } from "element-plus"
 import axios from "axios"
 import useClipboard from 'vue-clipboard3'
@@ -12,6 +12,7 @@ const e2eConfig: E2eConfig = reactive({
   password: '',
   server: '',
   secret: '',
+  connected: false
 })
 const textarea = ref('')
 
@@ -37,6 +38,10 @@ const messgaes: ForwardMsg[] = reactive([]);
 
 onMounted(() => {
   tryLoad()
+  window.addEventListener("beforeunload", (event) => {
+    event.preventDefault();
+    event.returnValue = "Refresh will require reconnection";
+  })
 })
 const tryLoad = () => {
   const u = localStorage.getItem('username')
@@ -67,8 +72,7 @@ interface MsgReceiver {
 }
 const receiver: MsgReceiver = {
   receive(msg: string) {
-    console.log("Received: " + msg)
-    messgaes.push(new ForwardMsg(msg, new Date().toTimeString(), '#0bbd87'))
+    messgaes.unshift(new ForwardMsg(msg, new Date().toTimeString(), '#0bbd87'))
   }
 }
 class E2eClient {
@@ -84,7 +88,11 @@ class E2eClient {
     this.cipher = new Cipher(conf.secret);
   }
   connect() {
-    axios.postForm("http://" + this.config.server + "/login", {
+    let url = this.config.server + "/login";
+    if (url.indexOf("http") === -1) {
+      url = "http://" + url;
+    }
+    axios.postForm(url, {
       username: this.config.username,
       password: this.config.password
     }).then(r => {
@@ -94,10 +102,23 @@ class E2eClient {
     });
   }
   start(path: string) {
-    this.wsClient = new WebSocket("ws://" + this.config.server + "/ws/" + path)
+    let url;
+    if (this.config.server.indexOf("https") === -1) {
+      url = "ws://" + this.config.server + "/ws/" + path
+    } else {
+      url = "wss://" + this.config.server + "/ws/" + path
+    }
+    this.wsClient = new WebSocket(url)
     this.wsClient.binaryType = 'arraybuffer'
     this.wsClient.onmessage = (e) => this.dispatch(e.data)
     this.cipher = new Cipher(this.config.secret);
+
+    this.config.connected = true;
+
+    localStorage.setItem("server", this.config.server)
+    localStorage.setItem("username", this.config.username)
+    localStorage.setItem("password", this.config.password)
+    localStorage.setItem("secret", this.config.secret)
   }
   shutdown() {
     if (this.wsClient) {
@@ -159,6 +180,7 @@ interface E2eConfig {
   password: string
   server: string
   secret: string
+  connected: boolean
 }
 
 class Cipher {
@@ -174,7 +196,7 @@ class Cipher {
   encrypt(t: string) {
     const secret = CryptoJS.enc.Utf8.parse(this.secret);
     const text = CryptoJS.enc.Utf8.parse(t);
-    const s = CryptoJS.AES.encrypt(text, secret , {
+    const s = CryptoJS.AES.encrypt(text, secret, {
       iv: secret,
       mode: CryptoJS.mode.CFB,
       padding: CryptoJS.pad.AnsiX923
@@ -227,6 +249,9 @@ const collapseLeft = () => {
           <el-input v-model="e2eConfig.password" type="password" placeholder="Please input password" show-password />
           <el-input v-model="e2eConfig.secret" placeholder="Please input secret" />
           <el-button type="primary" @click="connectToServer">Connect</el-button>
+          <el-icon v-show="e2eConfig.connected">
+            <CircleCheck color="#0bbd87" />
+          </el-icon>
         </div>
       </el-aside>
       <el-container>

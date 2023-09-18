@@ -80,11 +80,13 @@ class E2eClient {
   r: MsgReceiver
 
   cipher: Cipher
+  onsync: boolean
 
   constructor(conf: E2eConfig, r: MsgReceiver) {
     this.config = conf;
     this.r = r;
     this.cipher = new Cipher(conf.secret);
+    this.onsync = false;
   }
   connect() {
     let url = this.config.server + "/login";
@@ -111,6 +113,7 @@ class E2eClient {
     this.wsClient.binaryType = 'arraybuffer'
     this.wsClient.onmessage = (e) => this.dispatch(e.data)
     this.cipher = new Cipher(this.config.secret);
+    this.askForSync();
 
     this.config.connected = true;
 
@@ -129,7 +132,9 @@ class E2eClient {
     this.shutdown()
     this.connect()
   }
-
+  askForSync() {
+    this.onsync = true;
+  }
   sendChat(msg: string) {
     console.log("Send: " + msg)
     this.sendWebsocketMsg(4, msg)
@@ -154,7 +159,6 @@ class E2eClient {
     this.r.receive(s);
   }
   sendWebsocketMsg(type: number, msg?: string) {
-    console.log("Sending msg, type:" + type)
     if (msg) {
       this.wsClient?.send(this.encodeMsg(type, msg))
     } else {
@@ -184,34 +188,56 @@ interface E2eConfig {
 
 class Cipher {
   secret: string
-  textEncoder: TextEncoder
-  textDecoder: TextDecoder
 
   constructor(secret: string) {
     this.secret = secret;
-    this.textDecoder = new TextDecoder();
-    this.textEncoder = new TextEncoder();
   }
-  encrypt(t: string) {
+  encrypt(t: string) :Uint8Array {
     const secret = CryptoJS.enc.Utf8.parse(this.secret);
     const text = CryptoJS.enc.Utf8.parse(t);
-    const s = CryptoJS.AES.encrypt(text, secret, {
+    const words = CryptoJS.AES.encrypt(text, secret, {
       iv: secret,
       mode: CryptoJS.mode.CFB,
       padding: CryptoJS.pad.AnsiX923
-    }).toString();
-    console.log("encrypt to: " + s);
-    return this.textEncoder.encode(s);
+    }).ciphertext;
+    return this.words2uint8(words);
   }
-  decrypt(arr: Uint8Array) {
-    const s = this.textDecoder.decode(arr);
+  decrypt(arr: Uint8Array): string {
     const secret = CryptoJS.enc.Utf8.parse(this.secret);
-    console.log("decrypt from: " + s);
-    return CryptoJS.AES.decrypt(s, secret, {
+    const s = CryptoJS.lib.CipherParams.create({
+      ciphertext: this.uint8towords(arr)
+    })
+    const words = CryptoJS.AES.decrypt(s, secret, {
       iv: secret,
       mode: CryptoJS.mode.CFB,
       padding: CryptoJS.pad.AnsiX923
-    }).toString(CryptoJS.enc.Utf8);
+    });
+    return CryptoJS.enc.Utf8.stringify(words);
+  }
+  words2uint8(wordArray:CryptoJS.lib.WordArray) : Uint8Array {
+    //copied from web
+    let len = wordArray.words.length,
+        u8_array = new Uint8Array(len << 2),
+        offset = 0, word, i
+    ;
+    for (i=0; i<len; i++) {
+        word = wordArray.words[i];
+        u8_array[offset++] = word >> 24;
+        u8_array[offset++] = (word >> 16) & 0xff;
+        u8_array[offset++] = (word >> 8) & 0xff;
+        u8_array[offset++] = word & 0xff;
+    }
+    return u8_array;
+  }
+  uint8towords(arr:Uint8Array): CryptoJS.lib.WordArray {
+    const len = arr.length;
+    const numbers:number[] = [];
+    // if thing goes well, arr.at(i) won't be undefined, since arr is from a WordArray, but ts complains it.
+    const parse = (n:number|undefined) => n === undefined ? 0 : n;
+    for (let i = 0; i < len; i+=4) {
+      numbers[i >> 2] = (parse(arr.at(i)) << 24) | (parse(arr.at(i + 1)) << 16) | (parse(arr.at(i + 2)) << 8) | parse(arr.at(i + 3))
+    }
+    return CryptoJS.lib.WordArray.create(numbers)
   }
 }
 let e2eClient: E2eClient = new E2eClient(e2eConfig, receiver);

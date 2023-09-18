@@ -1,6 +1,7 @@
 # msg-forward-ui
 
-This template should help get you started developing with Vue 3 in Vite.
+A simple vue3 app which helps copying text across devices. Using websocket to send and receive texts encrypted by AES.
+The backend server is [msg-forward](https://github.com/yotsubar/msg-forward)
 
 ## Recommended IDE Setup
 

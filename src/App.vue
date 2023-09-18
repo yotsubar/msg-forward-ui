@@ -34,7 +34,7 @@ class ForwardMsg {
     this.icon = icon;
   }
 }
-const messgaes: ForwardMsg[] = reactive([]);
+const messgaes = ref<ForwardMsg[]>([]);
 
 onMounted(() => {
   tryLoad()
@@ -65,14 +65,38 @@ const copy2Clipboard = (text: string) => {
 }
 interface MsgReceiver {
   receive(msg: string): void
+  sync(json: string): void
+  messgaes(): ForwardMsg[]
 }
 const receiver: MsgReceiver = {
   receive(msg: string) {
-    const date = new Date();
-    const padding = (i:number) => i < 10 ? '0' + i : i;
-    const datetimeStr = `${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()} ${padding(date.getHours())}:${padding(date.getMinutes())}:${padding(date.getSeconds())}`;
-    messgaes.unshift(new ForwardMsg(msg, datetimeStr, '#0bbd87'))
+    messgaes.value.unshift(buildMsg(msg))
+  },
+  sync(json: string) {
+    messgaes.value = JSON.parse(json);
+  },
+  messgaes() {
+    return messgaes.value;
   }
+}
+const buildMsg = (msg: string, ts?: string): ForwardMsg => {
+  if (ts) {
+    return new ForwardMsg(msg, ts, '#0bbd87');
+  }
+  const date = new Date();
+  const padding = (i: number) => i < 10 ? '0' + i : i;
+  const datetimeStr = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()} ${padding(date.getHours())}:${padding(date.getMinutes())}:${padding(date.getSeconds())}`;
+  return new ForwardMsg(msg, datetimeStr, '#0bbd87');
+}
+const msgType = {
+  ERROR: 0,
+  OK: 1,
+  PING: 2,
+  PONG: 3,
+  MSG: 4,
+  ASK_SYNC: 5,
+  SYNC_ANSWER: 6,
+  NO_SYNC_ANSWER: 7
 }
 class E2eClient {
   config: E2eConfig
@@ -113,9 +137,11 @@ class E2eClient {
     this.wsClient.binaryType = 'arraybuffer'
     this.wsClient.onmessage = (e) => this.dispatch(e.data)
     this.cipher = new Cipher(this.config.secret);
-    this.askForSync();
-
-    this.config.connected = true;
+    this.wsClient.onopen = () => {
+      this.askForSync();
+      this.config.connected = true;
+    }
+    this.wsClient.onclose = () => this.config.connected = false;
 
     localStorage.setItem("server", this.config.server)
     localStorage.setItem("username", this.config.username)
@@ -133,21 +159,33 @@ class E2eClient {
     this.connect()
   }
   askForSync() {
+    this.sendWebsocketMsg(msgType.ASK_SYNC);
     this.onsync = true;
   }
-  sendChat(msg: string) {
-    console.log("Send: " + msg)
-    this.sendWebsocketMsg(4, msg)
+  sendChat(msg: string): boolean {
+    try {
+      this.sendWebsocketMsg(msgType.MSG, msg);
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   dispatch(msg: any) {
     if (msg instanceof ArrayBuffer) {
       // binary frame
       const arr = new Uint8Array(msg);
-      if (arr[0] == 2) {
-        this.sendWebsocketMsg(3);
-      } else if (arr[0] == 4) {
+      if (arr[0] == msgType.PING) {
+        this.sendWebsocketMsg(msgType.PONG);
+      } else if (arr[0] == msgType.MSG) {
         this.handleChatMessageReceived(arr)
+      } else if (arr[0] == msgType.ASK_SYNC) {
+        this.sendSyncAnswer();
+      } else if (arr[0] == msgType.SYNC_ANSWER) {
+        this.handleSyncAnswer(arr)
+      } else if (arr[0] == msgType.NO_SYNC_ANSWER) {
+        // nothing to sync
+        this.onsync = false;
       }
     } else {
       // text frame
@@ -155,8 +193,17 @@ class E2eClient {
     }
   }
   handleChatMessageReceived(data: Uint8Array) {
-    const s = this.decodeMsg(data);
-    this.r.receive(s);
+    this.r.receive(this.decodeMsg(data));
+  }
+  sendSyncAnswer() {
+    this.sendWebsocketMsg(msgType.SYNC_ANSWER, JSON.stringify(this.r.messgaes()));
+  }
+  handleSyncAnswer(data: Uint8Array) {
+    if (!this.onsync) {
+      return;
+    }
+    this.r.sync(this.decodeMsg(data));
+    this.onsync = false;
   }
   sendWebsocketMsg(type: number, msg?: string) {
     if (msg) {
@@ -167,14 +214,14 @@ class E2eClient {
       this.wsClient?.send(d)
     }
   }
-  encodeMsg(type: number, msg: string) {
+  encodeMsg(type: number, msg: string): Uint8Array {
     const content = this.cipher.encrypt(msg);
     const m = new Uint8Array(1 + content.length);
     m.fill(type, 0, 1);
     m.set(content, 1);
     return m;
   }
-  decodeMsg(data: Uint8Array) {
+  decodeMsg(data: Uint8Array): string {
     return this.cipher.decrypt(data.slice(1, data.length));
   }
 }
@@ -192,7 +239,7 @@ class Cipher {
   constructor(secret: string) {
     this.secret = secret;
   }
-  encrypt(t: string) :Uint8Array {
+  encrypt(t: string): Uint8Array {
     const secret = CryptoJS.enc.Utf8.parse(this.secret);
     const text = CryptoJS.enc.Utf8.parse(t);
     const words = CryptoJS.AES.encrypt(text, secret, {
@@ -214,27 +261,27 @@ class Cipher {
     });
     return CryptoJS.enc.Utf8.stringify(words);
   }
-  words2uint8(wordArray:CryptoJS.lib.WordArray) : Uint8Array {
+  words2uint8(wordArray: CryptoJS.lib.WordArray): Uint8Array {
     //copied from web
     let len = wordArray.words.length,
-        u8_array = new Uint8Array(len << 2),
-        offset = 0, word, i
-    ;
-    for (i=0; i<len; i++) {
-        word = wordArray.words[i];
-        u8_array[offset++] = word >> 24;
-        u8_array[offset++] = (word >> 16) & 0xff;
-        u8_array[offset++] = (word >> 8) & 0xff;
-        u8_array[offset++] = word & 0xff;
+      u8_array = new Uint8Array(len << 2),
+      offset = 0, word, i
+      ;
+    for (i = 0; i < len; i++) {
+      word = wordArray.words[i];
+      u8_array[offset++] = word >> 24;
+      u8_array[offset++] = (word >> 16) & 0xff;
+      u8_array[offset++] = (word >> 8) & 0xff;
+      u8_array[offset++] = word & 0xff;
     }
     return u8_array;
   }
-  uint8towords(arr:Uint8Array): CryptoJS.lib.WordArray {
+  uint8towords(arr: Uint8Array): CryptoJS.lib.WordArray {
     const len = arr.length;
-    const numbers:number[] = [];
+    const numbers: number[] = [];
     // if thing goes well, arr.at(i) won't be undefined, since arr is from a WordArray, but ts complains it.
-    const parse = (n:number|undefined) => n === undefined ? 0 : n;
-    for (let i = 0; i < len; i+=4) {
+    const parse = (n: number | undefined) => n === undefined ? 0 : n;
+    for (let i = 0; i < len; i += 4) {
       numbers[i >> 2] = (parse(arr.at(i)) << 24) | (parse(arr.at(i + 1)) << 16) | (parse(arr.at(i + 2)) << 8) | parse(arr.at(i + 3))
     }
     return CryptoJS.lib.WordArray.create(numbers)
@@ -253,7 +300,11 @@ const collapseLeft = () => {
   collapse.value = !collapse.value
   sessionStorage.setItem('collapse', '' + collapse.value)
 }
-
+const sendChat = () => {
+  if (e2eClient.sendChat(textarea.value)) {
+    textarea.value = '';
+  }
+}
 </script>
 
 <template>
@@ -293,7 +344,7 @@ const collapseLeft = () => {
         </el-main>
         <el-footer>
           <el-input class="msg-input" v-model="textarea" :rows="3" type="textarea" placeholder="Please input" />
-          <el-button type="primary" style="width: 100%;" @click="e2eClient.sendChat(textarea); textarea = ''">
+          <el-button type="primary" style="width: 100%;" @click="sendChat" :disabled="!e2eConfig.connected || textarea == ''">
             <el-icon>
               <Promotion />
             </el-icon>

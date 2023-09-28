@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import type { DefineComponent } from 'vue';
-import { DArrowLeft, DArrowRight, Promotion, CircleCheck } from '@element-plus/icons-vue'
+import { DArrowLeft, DArrowRight, Promotion, CircleCheck, CopyDocument } from '@element-plus/icons-vue'
 import { ElMessage } from "element-plus"
 import axios from "axios"
 import useClipboard from 'vue-clipboard3'
@@ -335,10 +335,11 @@ const sendChat = () => {
           <el-timeline class="infinite-list">
             <el-timeline-item v-for="(msg, index) in messgaes" :key="index" :icon="msg.icon" :type="msg.type"
               class="infinite-list-item " :color="msg.color" :size="msg.size" :hollow="msg.hollow"
-              :timestamp="msg.timestamp" @click="copy2Clipboard(msg.content)">
-              <el-card>
-                {{ msg.content }}
-              </el-card>
+              :timestamp="msg.timestamp">
+              <el-card>{{ msg.content }}</el-card>
+              <el-icon @click="copy2Clipboard(msg.content)"  class="copy-icon">
+                <CopyDocument />
+              </el-icon>
             </el-timeline-item>
           </el-timeline>
         </el-main>
@@ -371,7 +372,7 @@ const sendChat = () => {
   list-style: none;
 }
 
-.infinite-list .infinite-list-item {
+.infinite-list .infinite-list-item .copy-icon {
   cursor: pointer;
 }
 

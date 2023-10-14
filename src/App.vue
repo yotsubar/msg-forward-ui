@@ -91,12 +91,10 @@ const buildMsg = (msg: string, ts?: string): ForwardMsg => {
 const msgType = {
   ERROR: 0,
   OK: 1,
-  PING: 2,
-  PONG: 3,
-  MSG: 4,
-  ASK_SYNC: 5,
-  SYNC_ANSWER: 6,
-  NO_SYNC_ANSWER: 7
+  MSG: 2,
+  ASK_SYNC: 3,
+  SYNC_ANSWER: 4,
+  NO_SYNC_ANSWER: 5
 }
 class E2eClient {
   config: E2eConfig
@@ -175,9 +173,7 @@ class E2eClient {
     if (msg instanceof ArrayBuffer) {
       // binary frame
       const arr = new Uint8Array(msg);
-      if (arr[0] == msgType.PING) {
-        this.sendWebsocketMsg(msgType.PONG);
-      } else if (arr[0] == msgType.MSG) {
+      if (arr[0] == msgType.MSG) {
         this.handleChatMessageReceived(arr)
       } else if (arr[0] == msgType.ASK_SYNC) {
         this.sendSyncAnswer();

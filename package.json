@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@types/crypto-js": "^4.2.2",
-    "axios": "^1.7.7",
+    "axios": "^1.8.2",
     "crypto-js": "^4.2.0",
     "element-plus": "^2.9.1",
     "vue": "^3.5.13",

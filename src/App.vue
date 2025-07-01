@@ -275,10 +275,9 @@ class Cipher {
   uint8towords(arr: Uint8Array): CryptoJS.lib.WordArray {
     const len = arr.length;
     const numbers: number[] = [];
-    // if thing goes well, arr.at(i) won't be undefined, since arr is from a WordArray, but ts complains it.
     const parse = (n: number | undefined) => n === undefined ? 0 : n;
     for (let i = 0; i < len; i += 4) {
-      numbers[i >> 2] = (parse(arr.at(i)) << 24) | (parse(arr.at(i + 1)) << 16) | (parse(arr.at(i + 2)) << 8) | parse(arr.at(i + 3))
+      numbers[i >> 2] = (parse(arr[i]) << 24) | (parse(arr[i + 1]) << 16) | (parse(arr[i + 2]) << 8) | parse(arr[i + 3])
     }
     return CryptoJS.lib.WordArray.create(numbers)
   }
